@@ -27,6 +27,10 @@ namespace light {
 class Lights : public BnLights {
     ndk::ScopedAStatus setLightState(int id, const HwLightState& state) override;
     ndk::ScopedAStatus getLights(std::vector<HwLight>* types) override;
+
+private:
+    void addLight(int id, int ordinal, LightType type);
+    std::vector<HwLight> _lights;
 };
 
 }  // namespace light

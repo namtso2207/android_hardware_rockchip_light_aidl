@@ -18,6 +18,8 @@
 
 #include <android-base/logging.h>
 #include <log/log.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include <aidl/android/hardware/light/LightType.h>
 #include <aidl/android/hardware/light/FlashMode.h>
@@ -31,7 +33,6 @@ namespace light {
 
 static int write_int(const char* path, int value) {
     int fd;
-    static int already_warning = 0;
 
     fd = open(path, O_RDWR);
     if (fd >= 0) {
@@ -41,10 +42,7 @@ static int write_int(const char* path, int value) {
         close(fd);
         return amt == -1? -errno : 0;
     } else {
-        if (already_warning == 0) {
-            ALOGE("write_int() failed to open %s\n", path);
-            already_warning = 1;
-        }
+        ALOGE("write_int() failed to open %s:%s\n", path, strerror(errno));
         return -errno;
     }
 }
@@ -72,7 +70,6 @@ const char* getDriverPath(LightType type) {
         default:
             return "/not_supported";
     }
-
 }
 
 static int setLightFromType(LightType type, const HwLightState& state) {
@@ -120,23 +117,23 @@ static int setLightFromType(LightType type, const HwLightState& state) {
             if (blink) {
                 if (red) {
                     if (write_int((led_path + "/led_r/blink").c_str(), blink)) {
-                        write_int((led_path + "/led_r/brightness").c_str(), 0);
+                        err = write_int((led_path + "/led_r/brightness").c_str(), 0);
                     }
                 }
                 if (green) {
                     if (write_int((led_path + "/led_g/blink").c_str(), blink)) {
-                        write_int((led_path + "/led_g/brightness").c_str(), 0);
+                        err = write_int((led_path + "/led_g/brightness").c_str(), 0);
                     }
                 }
                 if (blue) {
                     if (write_int((led_path + "/led_b/blink").c_str(), blink)) {
-                        write_int((led_path + "/led_b/brightness").c_str(), 0);
+                        err = write_int((led_path + "/led_b/brightness").c_str(), 0);
                     }
                 }
             } else {
-                write_int((led_path + "/led_r/brightness").c_str(), red);
-                write_int((led_path + "/led_g/brightness").c_str(), green);
-                write_int((led_path + "/led_b/brightness").c_str(), blue);
+                err = write_int((led_path + "/led_r/brightness").c_str(), red);
+                err = write_int((led_path + "/led_g/brightness").c_str(), green);
+                err = write_int((led_path + "/led_b/brightness").c_str(), blue);
             }
             break;
         }
@@ -151,7 +148,7 @@ static int setLightFromType(LightType type, const HwLightState& state) {
 }
 
 ndk::ScopedAStatus Lights::setLightState(int id, const HwLightState& state) {
-    LOG(INFO) << "Lights setting state for id=" << id << " to color " << std::hex << state.color;
+    ALOGV("Lights setting state for id=%d to color:%x", id, state.color);
     LightType type;
     int err = -1;
     std::vector<HwLight>::iterator it = _lights.begin();
@@ -163,29 +160,73 @@ ndk::ScopedAStatus Lights::setLightState(int id, const HwLightState& state) {
         }
     }
     if (err != 0) {
-        goto ERROR_UNSUPPORTED;
+        return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
     }
+    // Set lights.
     err = setLightFromType(type, state);
     if (err == 0) {
         return ndk::ScopedAStatus::ok();
     }
-
-ERROR_UNSUPPORTED:
-    return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    return ndk::ScopedAStatus::fromServiceSpecificError(err);
 }
 
-ndk::ScopedAStatus Lights::getLights(std::vector<HwLight>* /*lights*/) {
-    LOG(INFO) << "Lights reporting supported lights";
+static int access_rgb() {
+    std::string led_path(getDriverPath(LightType::NOTIFICATIONS));
+    if (access((led_path + "/led_r/brightness").c_str(), F_OK) < 0)
+        return -errno;
+    if (access((led_path + "/led_g/brightness").c_str(), F_OK) < 0)
+        return -errno;
+    if (access((led_path + "/led_b/brightness").c_str(), F_OK) < 0)
+        return -errno;
+    return 0;
+}
+
+static int access_rgb_blink() {
+    std::string led_path(getDriverPath(LightType::NOTIFICATIONS));
+    if (access((led_path + "/led_r/blink").c_str(), F_OK) < 0)
+        return -errno;
+    if (access((led_path + "/led_g/blink").c_str(), F_OK) < 0)
+        return -errno;
+    if (access((led_path + "/led_b/blink").c_str(), F_OK) < 0)
+        return -errno;
+    return 0;
+}
+
+static int access_backlight() {
+    std::string backlight_path(getDriverPath(LightType::BACKLIGHT));
+    ALOGV("backlight_path: %s", backlight_path.c_str());
+    if (access(backlight_path.c_str(), F_OK) < 0) {
+        ALOGE("error: %s", strerror(errno));
+        return -errno;
+    }
+    return 0;
+}
+
+ndk::ScopedAStatus Lights::getLights(std::vector<HwLight>* lights) {
+    ALOGI("Lights reporting supported lights");
+    if (access_backlight() == 0) {
+        addLight(0, LightType::BACKLIGHT);
+    }
+    if (access_rgb() == 0) {
+        addLight(0, LightType::BATTERY);
+    }
+    if (access_rgb_blink() == 0) {
+        addLight(0, LightType::NOTIFICATIONS);
+    }
+    for (auto i = _lights.begin(); i != _lights.end(); i++) {
+        lights->push_back(*i);
+    }
     return ndk::ScopedAStatus::ok();
 }
 
 
-void Lights::addLight(int id, int ordinal, LightType type) {
-    HwLight *light = new HwLight();
-    light->id = id;
-    light->ordinal = ordinal;
-    light->type = type;
-    _lights.push_back(*light);
+void Lights::addLight(int const ordinal, LightType const type) {
+    ALOGI("addLight: %s", getDriverPath(type));
+    HwLight light{};
+    light.id = _lights.size();
+    light.ordinal = ordinal;
+    light.type = type;
+    _lights.emplace_back(light);
 }
 
 }  // namespace light

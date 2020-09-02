@@ -17,6 +17,7 @@
 #pragma once
 
 #include <aidl/android/hardware/light/BnLights.h>
+#define LOG_TAG "RockchipLights"
 
 namespace aidl {
 namespace android {
@@ -29,7 +30,7 @@ class Lights : public BnLights {
     ndk::ScopedAStatus getLights(std::vector<HwLight>* types) override;
 
 private:
-    void addLight(int id, int ordinal, LightType type);
+    void addLight(int const ordinal, LightType const type);
     std::vector<HwLight> _lights;
 };
 

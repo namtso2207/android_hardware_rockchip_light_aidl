@@ -204,6 +204,7 @@ static int access_backlight() {
 
 ndk::ScopedAStatus Lights::getLights(std::vector<HwLight>* lights) {
     ALOGI("Lights reporting supported lights");
+    _lights.clear();
     if (access_backlight() == 0) {
         addLight(0, LightType::BACKLIGHT);
     }

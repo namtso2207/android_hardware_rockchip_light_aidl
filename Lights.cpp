@@ -56,7 +56,7 @@ static int state2brightbess(const HwLightState& state) {
 const char* getDriverPath(LightType type) {
     switch (type) {
         case LightType::BACKLIGHT:
-            return "/sys/class/backlight/backlight/brightness";
+            return "/sys/class/backlight/backlight-mipi1/brightness";
         case LightType::BUTTONS:
             return "/sys/class/leds/button-backlight/brightness";
         case LightType::BATTERY:
@@ -74,8 +74,14 @@ const char* getDriverPath(LightType type) {
 
 static int setLightFromType(LightType type, const HwLightState& state) {
     int err = 0;
+	ALOGD("light type=%hhd: state.color=%x\n", type, state.color);
     switch (type) {
-        case LightType::BACKLIGHT:
+        case LightType::BACKLIGHT:{
+            int brightness = state2brightbess(state);
+            err = write_int("/sys/class/backlight/backlight-mipi1/brightness", brightness);
+            err = write_int("/sys/class/backlight/backlight-mipi2/brightness", brightness);
+            break;
+        }
         case LightType::BUTTONS: {
             int brightness = state2brightbess(state);
             err = write_int(getDriverPath(type), brightness);

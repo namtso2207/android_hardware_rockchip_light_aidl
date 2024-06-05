@@ -80,6 +80,7 @@ static int setLightFromType(LightType type, const HwLightState& state) {
             int brightness = state2brightbess(state);
             err = write_int("/sys/class/backlight/backlight-mipi1/brightness", brightness);
             err = write_int("/sys/class/backlight/backlight-mipi2/brightness", brightness);
+            err = write_int("/sys/class/backlight/backlight-edp0/brightness", brightness);
             break;
         }
         case LightType::BUTTONS: {
